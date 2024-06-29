@@ -1,5 +1,8 @@
 use super::*;
 
+mod material;
+mod mesh;
+
 pub struct PakSystem(pub Vec<(std::path::PathBuf, repak::PakReader)>);
 
 impl bevy::asset::io::AssetReader for PakSystem {
