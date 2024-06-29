@@ -8,6 +8,7 @@ mod actor;
 mod asset;
 mod dialog;
 mod extras;
+mod fs;
 mod input;
 mod persistence;
 mod picking;
@@ -151,6 +152,10 @@ fn activity() -> discord_rich_presence::activity::Activity<'static> {
 
 fn main() {
     App::new()
+        // .register_asset_source(
+        //     bevy::asset::io::AssetSourceId::Default,
+        //     bevy::asset::io::AssetSource::build().with_reader(|| Box::new(fs::PakSystem(vec![]))),
+        // )
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {

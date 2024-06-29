@@ -43,9 +43,9 @@ pub fn get<T>(
     ) -> Result<T, unreal_asset::error::Error>,
 ) -> Result<T, unreal_asset::error::Error> {
     fn game_name(pak: &repak::PakReader) -> Option<String> {
-        let mut split = pak.mount_point().split('/').peekable();
-        while let Some((game, content)) = split.next().zip(split.peek()) {
-            if game != "Engine" && content == &"Content" {
+        let mut split = pak.mount_point().split('/');
+        while let Some((game, content)) = split.next().zip(split.next()) {
+            if game != "Engine" && content == "Content" {
                 return Some(game.to_string());
             }
         }
