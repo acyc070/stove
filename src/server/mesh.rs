@@ -51,47 +51,22 @@ impl bevy::asset::AssetLoader for UMeshLoader {
                     None,
                 )
             }
-            let first = mats.first();
-            let tex = match first {
-                Some(mat) => extras::get_tex_paths(unreal_asset::Asset::new(
-                    std::io::Cursor::new(
-                        ctx.read_asset_bytes(mat.clone() + ".uasset")
-                            .await
-                            .map_err(|_| unreal_asset::Error::no_data("no material".into()))?,
-                    ),
-                    ctx.read_asset_bytes(mat.clone() + "uexp")
-                        .await
-                        .ok()
-                        .map(std::io::Cursor::new),
-                    unreal_asset::engine_version::EngineVersion::VER_UE5_1,
-                    None,
-                )?)
-                .first(),
-                None => None,
-            };
-            let image = match tex {
-                Some(mat) => extras::get_tex_info(
-                    unreal_asset::Asset::new(
-                        std::io::Cursor::new(
-                            ctx.read_asset_bytes(mat.clone() + ".uasset")
-                                .await
-                                .map_err(|_| unreal_asset::Error::no_data("no material".into()))?,
-                        ),
-                        ctx.read_asset_bytes(mat.clone() + "uexp")
+            let mut image = None;
+            'outer: for mat in mats {
+                let paths = extras::get_tex_paths(open(&mut ctx, &mat).await?);
+                for path in paths {
+                    if let Ok((false, width, height, data)) = extras::get_tex_info(
+                        open(&mut ctx, &mat).await?,
+                        ctx.read_asset_bytes(mat.clone() + "uptnl")
                             .await
                             .ok()
                             .map(std::io::Cursor::new),
-                        unreal_asset::engine_version::EngineVersion::VER_UE5_1,
-                        None,
-                    )?,
-                    ctx.read_asset_bytes(mat.clone() + "uptnl")
-                        .await
-                        .ok()
-                        .map(std::io::Cursor::new),
-                )
-                .ok(),
-                None => None,
-            };
+                    ) {
+                        image = Some((width, height, data));
+                        break 'outer;
+                    }
+                }
+            }
             Ok(UMesh {
                 mesh: ctx.add_labeled_asset(
                     "mesh".into(),
@@ -106,39 +81,39 @@ impl bevy::asset::AssetLoader for UMeshLoader {
                     )
                     .with_inserted_indices(bevy::render::mesh::Indices::U32(indices)),
                 ),
-                mat: image.map(|(_, width, height, data)| {
+                mat: image.map(|(width, height, data)| {
                     ctx.add_labeled_asset("material".into(), StandardMaterial {
-                    base_color_texture: Some(ctx.add_labeled_asset("texture".into(), Image {
-                        data,
-                        texture_descriptor: bevy::render::render_resource::TextureDescriptor {
-                            label: None,
-                            size: bevy::render::render_resource::Extent3d {
-                                width,
-                                height,
-                                depth_or_array_layers: 1,
+                        base_color_texture: Some(ctx.add_labeled_asset("texture".into(), Image {
+                            data,
+                            texture_descriptor: bevy::render::render_resource::TextureDescriptor {
+                                label: None,
+                                size: bevy::render::render_resource::Extent3d {
+                                    width,
+                                    height,
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: bevy::render::render_resource::TextureDimension::D2,
+                                format: bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+                                usage: bevy::render::render_resource::TextureUsages::TEXTURE_BINDING,
+                                view_formats: &[
+                                    bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+                                ],
                             },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: bevy::render::render_resource::TextureDimension::D2,
-                            format: bevy::render::render_resource::TextureFormat::Rgba8Unorm,
-                            usage: bevy::render::render_resource::TextureUsages::TEXTURE_BINDING,
-                            view_formats: &[
-                                bevy::render::render_resource::TextureFormat::Rgba8Unorm,
-                            ],
-                        },
-                        sampler: bevy::render::texture::ImageSampler::Descriptor(
-                            bevy::render::texture::ImageSamplerDescriptor {
-                                address_mode_u: bevy::render::texture::ImageAddressMode::Repeat,
-                                address_mode_v: bevy::render::texture::ImageAddressMode::Repeat,
-                                address_mode_w: bevy::render::texture::ImageAddressMode::Repeat,
-                                ..default()
-                            },
-                        ),
+                            sampler: bevy::render::texture::ImageSampler::Descriptor(
+                                bevy::render::texture::ImageSamplerDescriptor {
+                                    address_mode_u: bevy::render::texture::ImageAddressMode::Repeat,
+                                    address_mode_v: bevy::render::texture::ImageAddressMode::Repeat,
+                                    address_mode_w: bevy::render::texture::ImageAddressMode::Repeat,
+                                    ..default()
+                                },
+                            ),
+                            ..default()
+                        })),
+                        unlit: true,
                         ..default()
-                    })),
-                    unlit: true,
-                    ..default()
-                })
+                    })
                 }),
             })
         })
