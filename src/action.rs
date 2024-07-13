@@ -43,22 +43,28 @@ pub fn duplicate(
             kind: Warning,
         });
         match path {
-            Some(ref path) => {
-                let (mesh, material) = &registry.0[path];
-                commands.spawn((
-                    actor::SelectedBundle::default(),
-                    MaterialMeshBundle {
-                        mesh: mesh.clone_weak(),
-                        material: material
-                            .first()
-                            .map(Handle::clone_weak)
-                            .unwrap_or(consts.grid.clone_weak()),
-                        transform: actor.transform(map),
+            Some(path) => {
+                let meshes = &registry.meshes[&path];
+                let mut parent = commands.spawn((
+                    bevy_mod_raycast::deferred::RaycastMesh::<()>::default(),
+                    SpatialBundle {
+                        transform: new.transform(map),
                         ..default()
                     },
-                    bevy_mod_raycast::deferred::RaycastMesh::<()>::default(),
                     new,
                 ));
+                for (mesh, mat) in meshes.iter() {
+                    parent.with_children(|parent| {
+                        parent.spawn(MaterialMeshBundle {
+                            mesh: mesh.clone_weak(),
+                            material: mat
+                                .clone()
+                                .map(|mat| registry.mats[&mat].clone_weak())
+                                .unwrap_or(consts.grid.clone_weak()),
+                            ..default()
+                        });
+                    });
+                }
             }
             None => {
                 commands

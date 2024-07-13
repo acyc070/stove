@@ -147,96 +147,109 @@ pub fn open(
             .ok()
             .map(|mesh| (mesh, pak_file, pak))
         }) {
-            Some(((positions, indices, uvs, mats, _mat_data), pak_file, pak)) => {
-                registry.0.insert(path.clone(), (
-                    meshes.add(
-                        Mesh::new(bevy::render::render_resource::PrimitiveTopology::TriangleList, default())
-                            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-                            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.into_iter().map(|uv| uv[0]).collect::<Vec<_>>())
-                            .with_inserted_indices(bevy::render::mesh::Indices::U32(indices))
-                    ),
-                    match appdata.textures {
+            Some(((mut positions, indices, mut uvs, mut mats, data), pak_file, pak)) => {
+                let mut reg = Vec::with_capacity(data.len());
+                for (i, (min, max)) in data.into_iter().enumerate().rev() {
+                    let positions = positions.split_off(min as usize);
+                    let mut uvs = uvs.remove(i);
+                    uvs.truncate(max as usize);
+                    uvs = uvs.split_off(min as usize);
+                    // hopefully this translates
+                    let indices: Vec<_> = indices
+                        .iter()
+                        .filter(|i| i >= &&min && i <= &&max)
+                        .copied()
+                        .map(|i| i - min)
+                        .collect();
+                    let mat = match appdata.textures {
                         true => {
-                            let mats: Vec<_> = mats
-                                .into_iter()
-                                .map(|path| {
+                            let path = mats.remove(i);
+                            let mat = match asset::get(
+                                pak,
+                                pak_file,
+                                cache.as_deref(),
+                                &path,
+                                version,
+                                |mat, _| Ok(extras::get_tex_paths(mat)),
+                            ) {
+                                Ok(paths) => paths.into_iter().find_map(|path| {
                                     match asset::get(
                                         pak,
                                         pak_file,
                                         cache.as_deref(),
                                         &path,
                                         version,
-                                        |mat, _| Ok(extras::get_tex_paths(mat)),
+                                        |tex, bulk| Ok(extras::get_tex_info(tex, bulk)?),
                                     ) {
-                                        Ok(paths) => {
-                                            paths.into_iter().find_map(|path|
-                                                match asset::get(
-                                                    pak,
-                                                    pak_file,
-                                                    cache.as_deref(),
-                                                    &path,
-                                                    version,
-                                                    |tex, bulk| {
-                                                        Ok(extras::get_tex_info(tex, bulk)?)
-                                                    },
-                                                ) {
-                                                    Ok((false, x, y, data)) => Some((x,y,data)),
-                                                    Ok((true, ..)) => None,
-                                                    Err(e) => {
-                                                        notif.send(
-                                                            Notif {
-                                                                message: format!(
-                                                                    "{}: {e}",
-                                                                    path.split('/')
-                                                                        .last()
-                                                                        .unwrap_or_default()
-                                                                ),
-                                                                kind: Warning
-                                                            }
-                                                        );
-                                                        None
-                                                    }
-                                                }
-                                            )
-                                        },
-                                        _ => None,
+                                        Ok((false, x, y, data)) => Some((x, y, data)),
+                                        Ok((true, ..)) => None,
+                                        Err(e) => {
+                                            notif.send(Notif {
+                                                message: format!(
+                                                    "{}: {e}",
+                                                    path.split('/').last().unwrap_or_default()
+                                                ),
+                                                kind: Warning,
+                                            });
+                                            None
+                                        }
                                     }
-                                })
-                                .collect();
-                                mats.into_iter().flatten().map(|(width, height, data)| {
-                                    materials.add(unlit::Unlit {
-                                        texture: images.add(Image {
-                                            data,
-                                            texture_descriptor: bevy::render::render_resource::TextureDescriptor {
-                                                label: None,
-                                                size: bevy::render::render_resource::Extent3d {
-                                                    width,
-                                                    height,
-                                                    depth_or_array_layers: 1,
-                                                },
-                                                mip_level_count: 1,
-                                                sample_count: 1,
-                                                dimension: bevy::render::render_resource::TextureDimension::D2,
-                                                format: bevy::render::render_resource::TextureFormat::Rgba8Unorm,
-                                                usage: bevy::render::render_resource::TextureUsages::TEXTURE_BINDING,
-                                                view_formats: &[bevy::render::render_resource::TextureFormat::Rgba8Unorm],
+                                }),
+                                _ => None,
+                            };
+                            mat.map(|(width, height, data)| {
+                                (path, materials.add(unlit::Unlit {
+                                    texture: images.add(Image {
+                                        data,
+                                        texture_descriptor: bevy::render::render_resource::TextureDescriptor {
+                                            label: None,
+                                            size: bevy::render::render_resource::Extent3d {
+                                                width,
+                                                height,
+                                                depth_or_array_layers: 1,
                                             },
-                                            sampler: bevy::render::texture::ImageSampler::Descriptor(
-                                                bevy::render::texture::ImageSamplerDescriptor {
-                                                    address_mode_u: bevy::render::texture::ImageAddressMode::Repeat,
-                                                    address_mode_v: bevy::render::texture::ImageAddressMode::Repeat,
-                                                    address_mode_w: bevy::render::texture::ImageAddressMode::Repeat,
-                                                    ..default()
-                                                },
-                                            ),
-                                            ..default()
-                                        }),
-                                    })
-                                }).collect()
+                                            mip_level_count: 1,
+                                            sample_count: 1,
+                                            dimension: bevy::render::render_resource::TextureDimension::D2,
+                                            format: bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+                                            usage: bevy::render::render_resource::TextureUsages::TEXTURE_BINDING,
+                                            view_formats: &[bevy::render::render_resource::TextureFormat::Rgba8Unorm],
+                                        },
+                                        sampler: bevy::render::texture::ImageSampler::Descriptor(
+                                            bevy::render::texture::ImageSamplerDescriptor {
+                                                address_mode_u: bevy::render::texture::ImageAddressMode::Repeat,
+                                                address_mode_v: bevy::render::texture::ImageAddressMode::Repeat,
+                                                address_mode_w: bevy::render::texture::ImageAddressMode::Repeat,
+                                                ..default()
+                                            },
+                                        ),
+                                        ..default()
+                                    }),
+                                }))
+                            })
+                        }
+                        false => None,
+                    };
+                    reg.push((
+                        meshes.add(
+                            Mesh::new(
+                                bevy::render::render_resource::PrimitiveTopology::TriangleList,
+                                default(),
+                            )
+                            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+                            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+                            .with_inserted_indices(bevy::render::mesh::Indices::U32(indices)),
+                        ),
+                        match mat {
+                            Some((path, mat)) => {
+                                registry.mats.insert(path.clone(), mat);
+                                Some(path)
+                            }
+                            None => None,
                         },
-                        false => vec![consts.grid.clone_weak()],
-                    }
-                ));
+                    ));
+                }
+                registry.meshes.insert(path, reg);
             }
             None => {
                 notif.send(Notif {
@@ -259,21 +272,28 @@ pub fn open(
     for (path, actors) in batch {
         match path {
             Some(path) => {
-                let (mesh, material) = &registry.0[&path];
+                let meshes = &registry.meshes[&path];
                 for actor in actors {
-                    commands.spawn((
-                        MaterialMeshBundle {
-                            mesh: mesh.clone_weak(),
-                            material: material
-                                .first()
-                                .map(Handle::clone_weak)
-                                .unwrap_or(consts.grid.clone_weak()),
+                    let mut parent = commands.spawn((
+                        bevy_mod_raycast::deferred::RaycastMesh::<()>::default(),
+                        SpatialBundle {
                             transform: actor.transform(&asset),
                             ..default()
                         },
-                        bevy_mod_raycast::deferred::RaycastMesh::<()>::default(),
                         actor,
                     ));
+                    for (mesh, mat) in meshes.iter() {
+                        parent.with_children(|parent| {
+                            parent.spawn(MaterialMeshBundle {
+                                mesh: mesh.clone_weak(),
+                                material: mat
+                                    .clone()
+                                    .map(|mat| registry.mats[&mat].clone_weak())
+                                    .unwrap_or(consts.grid.clone_weak()),
+                                ..default()
+                            });
+                        });
+                    }
                 }
             }
             None => {
